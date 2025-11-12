@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OptiKount | Inventario Inteligente</title>
+
+    <!-- Fuente y libreras -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #0d1117;
+            --bg-panel: #161b22;
+            --bg-header: #1f6feb;
+            --text-main: #e6edf3;
+            --text-muted: #8b949e;
+            --border-color: #30363d;
+            --accent: #58a6ff;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            overflow-x: hidden;
+        }
+
+        /* === NAVBAR === */
+        header {
+            background: var(--bg-header);
+            display: flex;
+            align-items: center;
+            justify-content: space-between; /* MODIFICADO: Para separar el titulo del boton */
+            padding: 15px 40px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.6rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        header span {
+            font-weight: 400;
+            color: #c9d1d9;
+        }
+
+        /* === CONTENEDOR PRINCIPAL === */
+        main {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 40px;
+        }
+
+        section {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+        }
+
+        /* === TABLA DE INVENTARIO === */
+        h2 {
+            text-align: left;
+            margin-bottom: 15px;
+            color: var(--accent);
+            font-size: 1.2rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background-color: #21262d;
+            border-bottom: 2px solid var(--border-color);
+            padding: 10px;
+            text-align: left;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 1rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        
+        .color-box {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            margin-right: 8px;
+            border-radius: 3px;
+            vertical-align: middle;
+        }
+
+        /* === EFECTO DE CAMBIO === */
+        .resaltado {
+            animation: parpadeo 1s ease;
+        }
+
+        @keyframes parpadeo {
+            0% { background-color: rgba(46, 160, 67, 0.3); }
+            100% { background-color: transparent; }
+        }
+
+        /* === GRAFICA === */
+        #grafica {
+            width: 100%;
+            height: 300px;
+        }
+
+        /* === FOOTER === */
+        footer {
+            text-align: center;
+            padding: 20px;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* === RESPONSIVE === */
+        @media (max-width: 900px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* AnADIDO: Estilos para el boton de reinicio */
+        #reset-btn {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+
+        #reset-btn:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1> OptiKount <span>| Sistema de Inventario Inteligente</span></h1>
+        <!-- AnADIDO: Boton de reinicio en el encabezado -->
+        <button id="reset-btn">Reiniciar Contadores</button>
+    </header>
+
+    <main>
+        <!-- PANEL DE TABLA -->
+        <section>
+            <h2> Registro de Colores Detectados</h2>
+            <table id="tabla-colores">
+                <thead>
+                    <tr><th>Color</th><th>Cantidad</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </section>
+
+        <!-- PANEL DE GRAFICA -->
+        <section>
+            <h2> Estadsticas en Tiempo Real</h2>
+            <canvas id="grafica"></canvas>
+        </section>
+    </main>
+
+    <footer>
+        OptiKount  2025  Sistema de vision con Raspberry Pi 4
+    </footer>
+
+    <script>
+        const colores = {
+            Red: '#ff4d4d',
+            Green: '#28a745',
+            Blue: '#007bff',
+            Yellow: '#ffd633',
+            White: '#f8f9fa',
+            Black: '#212529'
+        };
+        
+        const tbody = document.querySelector('#tabla-colores tbody');
+        const socket = io();
+
+        let datosActuales = {};
+        let grafica = null;
+
+        // Crear o actualizar fila
+        function actualizarFila(color, cantidad) {
+            let fila = document.getElementById(`fila-${color}`);
+            if (!fila) {
+                fila = document.createElement('tr');
+                fila.id = `fila-${color}`;
+                fila.innerHTML = `
+                    <td><span class="color-box" style="background-color:${colores[color] || '#ccc'};"></span>${color}</td>
+                    <td id="${color}">${cantidad}</td>
+                `;
+                tbody.appendChild(fila);
+            } else {
+                const celda = document.getElementById(color);
+                if (celda.textContent != cantidad) {
+                    celda.textContent = cantidad;
+                    celda.classList.add('resaltado');
+                    setTimeout(() => celda.classList.remove('resaltado'), 800);
+                }
+            }
+        }
+
+        // Inicializa la grfica
+        function inicializarGrafica() {
+            const ctx = document.getElementById('grafica').getContext('2d');
+            grafica = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(colores),
+                    datasets: [{
+                        label: 'Cantidad Detectada',
+                        data: Object.keys(colores).map(() => 0),
+                        backgroundColor: Object.values(colores),
+                        borderColor: '#ffffff30',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true, ticks: { color: '#e6edf3' } },
+                        x: { ticks: { color: '#e6edf3' } }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { backgroundColor: '#161b22', titleColor: '#e6edf3', bodyColor: '#c9d1d9' }
+                    }
+                }
+            });
+        }
+
+        // Actualiza grfica
+        function actualizarGrafica(datos) {
+            if (!grafica) return;
+            for (let i = 0; i < grafica.data.labels.length; i++) {
+                const color = grafica.data.labels[i];
+                grafica.data.datasets[0].data[i] = datos[color] || 0;
+            }
+            grafica.update();
+        }
+
+        // Socket.IO - Actualizacn en tiempo real
+        socket.on('update_data', (datos) => {
+            for (const [color, cantidad] of Object.entries(datos)) {
+                actualizarFila(color, cantidad);
+            }
+            actualizarGrafica(datos);
+            datosActuales = datos;
+        });
+
+        // Carga inicial
+        fetch('/datos')
+            .then(res => res.json())
+            .then(datos => {
+                for (const [color, cantidad] of Object.entries(datos)) {
+                    actualizarFila(color, cantidad);
+                }
+                inicializarGrafica();
+                actualizarGrafica(datos);
+                datosActuales = datos;
+            });
+
+        // AnADIDO: Logica para el boton de reinicio
+        document.addEventListener('DOMContentLoaded', function() {
+            const resetBtn = document.getElementById('reset-btn');
+
+            resetBtn.addEventListener('click', function() {
+                fetch('/reset_contador', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log(data.message); // Muestra el mensaje de exito en la consola
+                        // La UI se actualizara automaticamente gracias al evento SocketIO emitido por el servidor
+                    })
+                    .catch(error => console.error('Error al reiniciar contadores:', error));
+            });
+        });
+    </script>
+</body>
+</html>
