@@ -1,0 +1,12 @@
+{
+    "gpio_pins": {
+        "Red": 17,
+        "Green": 23,
+        "Blue": 24,
+        "Yellow": 27,
+        "White": 22
+    },
+    "colores_a_contar": ["Red", "Green", "Blue", "Yellow", "White", "Black"],
+    "umbral_confianza": 0.5,
+    "archivo_datos": "datos.json"
+}
